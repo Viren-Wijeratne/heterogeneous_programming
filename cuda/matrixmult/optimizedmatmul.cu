@@ -4,6 +4,8 @@
 #define TILESIZE 16
 
 __global__ void matmul_tiled(float *C, const float *A, const float *B, int M, int N, int K){
+   
+    //Declaring arrays to store 16*16 potion of the A and B arrays in a_tile and b_tile respectively in shared memory
     __shared__ float b_tile[TILESIZE][TILESIZE];    //arrays stored in shared memory
     __shared__ float a_tile[TILESIZE][TILESIZE]; 
     int tx = threadIdx.x;
@@ -13,23 +15,24 @@ __global__ void matmul_tiled(float *C, const float *A, const float *B, int M, in
     
     float sum = 0.0f;
 
-    for(int phase = 0; phase < (K + TILESIZE - 1) / TILESIZE; phase++){
+    //Load the values from 2D array into 1D memory allocation in shared memory
+    for(int phase = 0; phase < (K + TILESIZE - 1) / TILESIZE; phase++){     //What is phase? Explanation down in the comment block
         
-        //Loadng the tiles from the global memory
+        //Loading the tiles from the global memory into shared memory
         a_tile[ty][tx] = 
-            (row < M && phase * TILESIZE + tx < K) 
-            ? A[row * K + phase * TILESIZE + tx] 
+            (row < M && phase * TILESIZE + tx < K)  
+            ? A[row * K + phase * TILESIZE + tx]     //This similar to wriiting A[row][phase * TILESIZE + tx]
             : 0.0f;
 
         b_tile[ty][tx] = 
-            (phase * TILESIZE + ty < K && col < N) 
-            ? B[(phase * TILESIZE + ty) * N + col] 
+            (phase * TILESIZE + ty < K && col < N)  
+            ? B[(phase * TILESIZE + ty) * N + col]      //This similar to wriiting A[phase * TILESIZE + ty][col]
             : 0.0f;
         
         //Sync
-        __syncthreads();
+        __syncthreads();    //Wait until the function of all the threads are finished
         
-        //Compute
+        //Main computation of the function
         for(int i = 0; i < TILESIZE; i++){
             sum += a_tile[ty][i] * b_tile[i][tx];
         }
@@ -69,6 +72,7 @@ int main(){
     cudaMemcpy(d_a, h_a, bytes_A, cudaMemcpyHostToDevice);
     cudaMemcpy(d_b, h_b, bytes_B, cudaMemcpyHostToDevice);
 
+    //                      x         y
     dim3 threadsPerBlock(TILESIZE, TILESIZE);
     dim3 numBlocks((N + TILESIZE -1) / TILESIZE, (M + TILESIZE -1) / TILESIZE );
 
@@ -110,7 +114,7 @@ int main(){
     +-------------------+
 
 //Anatomy of a block
-                                    Block 0 - a_tile 
+                                Block 0 - a_tile 
    +---------------------------------------------------------------------+ 
    | +-------------------+-------------------+     +-------------------+ |
    | |c0 c1 c2 ...    c15|c0 c1 c2 ...    c15|     |c0 c1 c2 ...    c15| |
@@ -143,6 +147,7 @@ int main(){
     - There will be also a b_tile for this block and both tiles will be sharing the same shared memory
     - For each block, these arrays (a_tile and b_tile) hold the input data needed to calculate its 16 × 16 output region of C.
 
+
 Consider this example:
     blockIdx.y = 1;     //Block Row 1
     blockIdx.x = 2;     //Block Column 2
@@ -163,9 +168,45 @@ Consider this example:
 - For each block, these arrays hold the input data needed to calculate its 16 × 16 output region.
 
 
+Why do we use phase?
+- Remember that matrix multiplication involves summing over the K dimension.
+- Your K dimension contains 1024 elements, but your shared-memory tile can only accommodate 16 elements along that dimension at a time.
+- Therefore # of phases = 1024/16 = 64
+- Each phase processes another 16 elements of the multiplication.
+- Think of it as dividing the multiplication into 64 smaller multiplication operations.
+- (K + TILESIZE - 1) / TILESIZE     //Way of performing integer division with rounding upwards. That's useful when K isn't an exact multiple of 16.
+- So the K values are divided into 16 phases,
+            phase       K
+            0        0-15  
+            1        16-31
+            2        32-47
+            .          .
+            .          .
+            .          .
+            63       1008-1023              
+
+    row * K + phase * TILESIZE + tx     //Similar to A[row][phase * TILESIZE + tx]
+- row identifies the output row currently being processed.
+- phase * 16 + tx identifies the current section of that row.
+- So you're taking a portion of a row in A and placing it into shared memory.
+
+    (phase * TILESIZE + ty) * N + col // Similar to B[phase * TILESIZE + ty][col]
+- We're selecting a portion of a column range from B.
+- phase * 16 + ty identifies the current section of rows.
+- col identifies the output column being processed.
+
+- This is important because matrix multiplication requires a row from A and a column from B.
+- During phase 0, the block loads:
+        A: 16 rows × 16 columns, corresponding to the block's output rows and K indices 0–15.
+        B: 16 rows × 16 columns, corresponding to K indices 0–15 and the block's output columns.
 
 
-
+__syncthreads()
+- All 256 threads in a block load values into the shared-memory arrays. However, GPU threads don't necessarily finish their operations simultaneously
+- Suppose thread 0 finishes loading its values, but thread 200 hasn't finished
+- Thread 0 must not start reading the shared-memory tile before thread 200 has finished writing its portion.
+- Otherwise, it could read an incomplete tile.
+- __syncthreads() acts as a block-wide barrier where every thread in the block must reach this point before any of them proceed beyond it.
 
 
 

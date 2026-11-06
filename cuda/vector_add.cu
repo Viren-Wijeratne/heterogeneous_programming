@@ -32,9 +32,10 @@ int main(){
 	cudaMemcpy(dev_a, h_a, bytes, cudaMemcpyHostToDevice);	//Copying over the data in the CPU memory into the GPU memory
 	cudaMemcpy(dev_b, h_b, bytes, cudaMemcpyHostToDevice);
 
-	int threadsPerBlock = 256;			//256 threads make 8 warps per block
-	int blocksPerGrid = (size + threadsPerBlock - 1) / threadsPerBlock;		
+	int threadsPerBlock = 256;			//256 threads make 8 warps per block, number of threads inside 1 block
+	int blocksPerGrid = (size + threadsPerBlock - 1) / threadsPerBlock;		//Number of blocks we want to run
 
+	//Inorder to run our kernel we need to specific how may blocks we want to run and how many threads are in one block
 	addKernel<<<blocksPerGrid, threadsPerBlock>>>(dev_c, dev_a, dev_b, size);	//Call the function to run within the GPU
 
 	cudaMemcpy(h_c, dev_c, bytes, cudaMemcpyDeviceToHost);		//After the function ran the result will be stored at dev_c in the GPU memory, Here we copy it back into the CPU memory

@@ -18,7 +18,7 @@ __global__ void matmult(int A[M][N], int B[N][P], int C[M][P]){
             for(int k = 0; k < P; k++){
                 //sum += A[row * K + k] * B[k * N + col]; 
                 //C[row * N + col] = sum;
-                C[row * P][col] += A[row * N][k] * B[N * k][col];       //?????
+                C[row * P][col] += A[row * N][k] * B[N * k][col];       //Seems right?
             }
     }
 }
@@ -29,7 +29,7 @@ int main(){
     size_t bytes_b = N * P * sizeof(float);
     size_t bytes_c = M * N * sizeof(float);
    
-    float h_a[M][N] = malloc(bytes_a);      //Wrong implementation!!!
+    float h_a[M][N] = malloc(bytes_a);      //Wrong implementation!!! Need to learn how to allocated memory in the heap for 2D arrays!!!
     float h_b[N][P] = (float)malloc(bytes_b);
     float h_c[M][P] = (float)malloc(bytes_c);
 
